@@ -17,6 +17,8 @@ scripts/fetch_archive_metadata.py   Issue metadata + embed link from archive.org
 scripts/fetch_wayback_links.py      Matches Wayback snapshots of xlr8r.com/magazine/<n> to issues
 scripts/fetch_hyperreal_links.py    Crawls the hyperreal.org zine-era pages, matches/creates issues
 scripts/extract_articles.py         Splits each issue's OCR text into per-article rows
+scripts/audit_check.py              Read-only production diagnostic (data integrity + live API checks)
+scripts/dedupe_articles.py          Removes exact duplicate article rows (idempotent)
 backend/app/                        FastAPI app (models, schemas, endpoints)
 backend/Procfile                    Production start command
 backend/railway.toml                Railway deploy config (start command, healthcheck, restart policy)
@@ -178,6 +180,62 @@ than Railway's managed Postgres template) with a volume mounted at
 on that service. Without it, `initdb` refuses to run because the mount
 point isn't empty (it has a `lost+found` directory), and the container
 crash-loops on every boot.
+
+## The content-pipeline service (Railway)
+
+Scripts run as a third Railway service in the same project, root
+directory `scripts`, with `DATABASE_URL` pointed at the same Postgres.
+Change its start command to whatever you want to run, then redeploy.
+
+**It auto-deploys on every push, like any other service.** Whatever
+start command is set there re-runs on every commit, so it must stay
+idempotent. This already bit once: `extract_articles.py` without
+`--replace` appended a fresh copy of every article on each run and took
+the article count from 304 to 817 before it was caught. The fetch
+scripts upsert on conflict so they were unaffected.
+
+Its default start command is `python audit_check.py` — read-only, so an
+accidental re-run can't change data. Point it at the full pipeline
+deliberately when you actually want to re-scrape:
+
+```
+python fetch_archive_metadata.py --dsn $DATABASE_URL && \
+python fetch_wayback_links.py --dsn $DATABASE_URL && \
+python fetch_hyperreal_links.py --dsn $DATABASE_URL && \
+python extract_articles.py --replace --dsn $DATABASE_URL && \
+python audit_check.py
+```
+
+Note a start command set through Railway's API/dashboard overrides the
+one in `railway.toml`.
+
+## Current live state
+
+- Frontend: https://frontend-production-1f209.up.railway.app
+- API: https://backend-production-8c32.up.railway.app
+- 69 issues, 257 articles, 205 content links; every issue link resolves.
+
+## Known gaps
+
+- **Article titles are low quality.** Segmentation takes the first line
+  of each OCR chunk, which is often mid-sentence text or garbled
+  characters (real examples: "are the pounding, drummy, seven-minute
+  long thud-whack techno", "SIC AT® CULTURE"). Improving this means a
+  better segmentation approach, not a tweak to the current heuristic.
+- **No artist tagging.** The `artists`/`article_artists` tables exist
+  and the API and UI both handle them, but nothing populates them, so
+  the count stays 0 and the browse page hides that stat.
+- **hyperreal.org is unreachable from Railway.** DNS for
+  `media.hyperreal.org` fails from inside Railway's network, though the
+  site resolves fine elsewhere. Those zine-era issues are missing until
+  that's worked around or the script is run from somewhere else.
+- **Bundle embed deep-linking is unverified.** Most issues are one file
+  inside the `XLR8R101` item, embedded as
+  `archive.org/embed/XLR8R101/XLR8R_<n>`. If archive.org ignores the
+  sub-path, every bundle issue's reader would show the same issue. The
+  "Open this issue on archive.org →" link beside each reader uses the
+  `/details/<item>/<file>` form that archive.org itself uses and is
+  correct either way.
 
 ## Not built yet
 
