@@ -71,7 +71,7 @@
     ]);
   }
 
-  function renderReader(contentLinks) {
+  function renderReader(contentLinks, issue) {
     const embed = contentLinks.find((c) => c.link_type === 'pdf_embed');
     const section = el('section', {}, [el('h2', {}, [document.createTextNode('Read this issue')])]);
 
@@ -91,6 +91,21 @@
         ])
       );
     }
+
+    // Always offer the direct link too. Most issues live as one file
+    // inside a single bundled archive.org item, and the embedded reader
+    // can be fussy about deep-linking to a specific file within a
+    // bundle -- this link goes straight to the right issue regardless.
+    if (issue && issue.source_url) {
+      section.appendChild(
+        el('p', { class: 'hero-meta', style: 'margin-top:10px' }, [
+          el('a', { href: issue.source_url, target: '_blank', rel: 'noopener' }, [
+            document.createTextNode('Open this issue on archive.org →'),
+          ]),
+        ])
+      );
+    }
+
     return section;
   }
 
@@ -129,7 +144,17 @@
 
     const list = el('ul', { class: 'article-list' });
     articles.forEach((a) => {
-      const li = el('li', {}, [el('p', { class: 'item-title' }, [document.createTextNode(a.title)])]);
+      // Link the title straight to where the text actually lives, on
+      // archive.org. We hold OCR'd text server-side to power search,
+      // but we don't republish it here -- the source is the place to
+      // read the full article.
+      const titleNode = a.source_url
+        ? el('a', { href: a.source_url, target: '_blank', rel: 'noopener' }, [
+            document.createTextNode(a.title),
+          ])
+        : document.createTextNode(a.title);
+
+      const li = el('li', {}, [el('p', { class: 'item-title' }, [titleNode])]);
 
       if (a.author) {
         li.appendChild(el('p', { class: 'item-byline' }, [document.createTextNode(`by ${a.author}`)]));
@@ -157,12 +182,26 @@
     const app = document.getElementById('app');
     try {
       const resp = await fetch(`${API_BASE}/issues/${issueId}/full`);
+      if (resp.status === 404) {
+        app.innerHTML = '';
+        app.appendChild(
+          el('div', { class: 'empty-panel' }, [
+            document.createTextNode("That issue isn't in the archive. "),
+            el('a', { href: 'index.html' }, [document.createTextNode('Browse all issues')]),
+          ])
+        );
+        return;
+      }
       if (!resp.ok) throw new Error(`API returned ${resp.status}`);
       const issue = await resp.json();
 
+      document.title = issue.issue_number
+        ? `XLR8R #${issue.issue_number} — archive`
+        : 'XLR8R archive';
+
       app.innerHTML = '';
       app.appendChild(renderMasthead(issue));
-      app.appendChild(renderReader(issue.content_links || []));
+      app.appendChild(renderReader(issue.content_links || [], issue));
       const others = renderOtherLinks(issue.content_links || []);
       if (others) app.appendChild(others);
       app.appendChild(renderArticles(issue.articles || []));

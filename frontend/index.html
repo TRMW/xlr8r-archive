@@ -81,11 +81,18 @@
       const statRow = document.getElementById('stat-row');
       statRow.innerHTML = '';
       statRow.appendChild(
-        el('span', { class: 'stat' }, [document.createTextNode(`${stats.articles} articles indexed`)])
+        el('span', { class: 'stat' }, [document.createTextNode(`${stats.issues} issues`)])
       );
       statRow.appendChild(
-        el('span', { class: 'stat' }, [document.createTextNode(`${stats.artists} artists tagged`)])
+        el('span', { class: 'stat' }, [document.createTextNode(`${stats.articles} articles indexed`)])
       );
+      // Artist tagging isn't implemented yet, so the count is always 0 --
+      // only show it once something actually populates artist tags.
+      if (stats.artists > 0) {
+        statRow.appendChild(
+          el('span', { class: 'stat' }, [document.createTextNode(`${stats.artists} artists tagged`)])
+        );
+      }
     } catch (err) {
       // Stats are a nice-to-have; a failed fetch here shouldn't block the rest of the page.
     }
@@ -137,7 +144,13 @@
   }
 
   function articleResult(article) {
-    const li = el('li', {}, [el('p', { class: 'item-title' }, [document.createTextNode(article.title)])]);
+    const titleNode = article.source_url
+      ? el('a', { href: article.source_url, target: '_blank', rel: 'noopener' }, [
+          document.createTextNode(article.title),
+        ])
+      : document.createTextNode(article.title);
+
+    const li = el('li', {}, [el('p', { class: 'item-title' }, [titleNode])]);
 
     if (article.author) {
       li.appendChild(el('p', { class: 'item-byline' }, [document.createTextNode(`by ${article.author}`)]));

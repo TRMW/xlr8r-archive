@@ -1,10 +1,10 @@
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Query, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from . import models, schemas
 from .db import engine, get_db
@@ -52,7 +52,10 @@ def list_issues(
 
 @app.get("/issues/{issue_id}", response_model=schemas.IssueOut)
 def get_issue(issue_id: int, db: Session = Depends(get_db)):
-    return db.query(models.Issue).filter(models.Issue.id == issue_id).first()
+    issue = db.query(models.Issue).filter(models.Issue.id == issue_id).first()
+    if issue is None:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    return issue
 
 
 @app.get("/issues/{issue_id}/full", response_model=schemas.IssueDetailOut)
@@ -60,7 +63,18 @@ def get_issue_full(issue_id: int, db: Session = Depends(get_db)):
     """Single issue page payload: metadata + articles (with artist tags)
     + every content link (primary scan embed, plus anything else found
     for this issue from other sources) in one response."""
-    return db.query(models.Issue).filter(models.Issue.id == issue_id).first()
+    issue = (
+        db.query(models.Issue)
+        .options(
+            selectinload(models.Issue.articles).selectinload(models.Article.artists),
+            selectinload(models.Issue.content_links),
+        )
+        .filter(models.Issue.id == issue_id)
+        .first()
+    )
+    if issue is None:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    return issue
 
 
 @app.get("/issues/{issue_id}/articles", response_model=list[schemas.ArticleOut])
@@ -95,8 +109,17 @@ def search_articles(
     db: Session = Depends(get_db),
     limit: int = Query(25, le=100),
 ):
-    query = db.query(models.Article).filter(
-        models.Article.search_vector.op("@@")(func.plainto_tsquery("english", q))
+    if not q or not q.strip():
+        return []
+
+    tsquery = func.plainto_tsquery("english", q)
+    query = (
+        db.query(models.Article)
+        .options(selectinload(models.Article.artists))
+        .filter(models.Article.search_vector.op("@@")(tsquery))
+        # Best matches first -- without this, results come back in
+        # whatever order the index scan happens to produce.
+        .order_by(func.ts_rank(models.Article.search_vector, tsquery).desc())
     )
     if article_type:
         query = query.filter(models.Article.article_type == article_type)

@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Date, DateTime, Text, ForeignKey, Table
-from sqlalchemy.orm import relationship, declarative_base
+from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.orm import relationship, declarative_base, deferred
 from sqlalchemy.sql import func
 
 Base = declarative_base()
@@ -39,9 +40,18 @@ class Article(Base):
     article_type = Column(String)
     page_start = Column(Integer)
     page_end = Column(Integer)
-    body_text = Column(Text)
     source_url = Column(String)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Both of these are large and neither is ever returned to a client:
+    # body_text is OCR'd article text kept purely so Postgres can index
+    # it, and search_vector is the tsvector the DB trigger derives from
+    # it. deferred() keeps them out of every ordinary SELECT -- they're
+    # only fetched if explicitly accessed. search_vector must still be
+    # declared here (not just in schema.sql) or `Article.search_vector`
+    # raises AttributeError and /articles/search 500s.
+    body_text = deferred(Column(Text))
+    search_vector = deferred(Column(TSVECTOR))
 
     issue = relationship("Issue", back_populates="articles")
     artists = relationship("Artist", secondary=article_artists, back_populates="articles")
