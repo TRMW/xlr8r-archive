@@ -1,0 +1,12 @@
+{
+  "name": "xlr8r-archive-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Static frontend for the XLR8R archive (index.html + issue.html), served as-is.",
+  "dependencies": {
+    "serve": "^14.2.3"
+  },
+  "scripts": {
+    "start": "serve . -l tcp://0.0.0.0:$PORT"
+  }
+}

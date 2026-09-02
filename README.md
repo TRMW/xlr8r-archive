@@ -22,7 +22,9 @@ backend/Procfile                    Production start command
 backend/railway.toml                Railway deploy config (start command, healthcheck, restart policy)
 frontend/shared.css                 Design tokens + components shared by both pages
 frontend/issue.html                 Single-issue page (masthead, embedded reader, content links, articles)
-frontend/browse.html                Site home: live stats, search, paginated issue grid
+frontend/index.html                 Site home: live stats, search, paginated issue grid
+frontend/package.json               Pulls in `serve` so Railway can host the static files
+frontend/railway.toml               Railway deploy config for the frontend service
 ```
 
 ## Setup
@@ -102,11 +104,13 @@ Notes on each:
 ## Frontend
 
 Two static pages, no build step, sharing `shared.css` for a consistent
-look. Set `window.XLR8R_API_BASE` before either loads if the API isn't at
-`http://localhost:8000` (e.g. `<script>window.XLR8R_API_BASE = "https://api.example.com"</script>`
-before the closing `</head>`).
+look. Both default `window.XLR8R_API_BASE` to the deployed backend
+(`https://backend-production-8c32.up.railway.app`) right in the HTML —
+override it by setting `window.XLR8R_API_BASE` in a `<script>` tag
+before that default line runs, e.g. for pointing a local checkout at a
+different environment.
 
-- **`browse.html`** — the site home. Masthead shows live counts from
+- **`index.html`** — the site home. Masthead shows live counts from
   `GET /stats` (issues / articles / artists indexed), a search box hitting
   `GET /articles/search`, and a paginated grid of every issue from
   `GET /issues`, using the `X-Total-Count` response header to know when
@@ -117,8 +121,7 @@ before the closing `</head>`).
   issue, and its article list.
 
 The backend has CORS wide open (`allow_origins=["*"]`) since these pages
-are static files served separately from the API — tighten that to your
-actual frontend domain once you deploy.
+are static files served separately from the API.
 
 ## API
 
@@ -152,10 +155,16 @@ pointing the service at `backend/` as its root directory:
 - Schema is applied automatically on first boot — nothing manual to run
   against the provisioned Postgres instance
 
-The frontend (`frontend/*.html`) is static and doesn't need Railway —
-any static host works, or a second minimal Railway service serving the
-`frontend/` directory. Set `window.XLR8R_API_BASE` in the HTML to the
-backend service's public Railway domain.
+The frontend runs as a second Railway service in the same project,
+pointed at the same repo:
+
+- Root directory: `frontend`
+- Start command: `npm start` → `serve . -l tcp://0.0.0.0:$PORT`
+  (`package.json` pulls in the `serve` package at build time so nothing
+  hits the network at boot)
+- Healthcheck: `/`
+- No env vars needed — the API base URL is baked into the HTML files
+  directly (see Frontend section above)
 
 If you ever re-provision Postgres from a raw `postgres:16` image (rather
 than Railway's managed Postgres template) with a volume mounted at

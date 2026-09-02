@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link href="shared.css" rel="stylesheet">
+<script>window.XLR8R_API_BASE = window.XLR8R_API_BASE || 'https://backend-production-8c32.up.railway.app';</script>
 </head>
 <body>
 <div class="wrap" id="app">
@@ -57,7 +58,7 @@
     return el('div', { class: 'masthead' }, [
       el('div', { class: 'masthead-inner' }, [
         el('p', { class: 'kicker' }, [
-          el('a', { href: 'browse.html', style: 'color:inherit;text-decoration:none' }, [document.createTextNode('XLR8R')]),
+          el('a', { href: 'index.html', style: 'color:inherit;text-decoration:none' }, [document.createTextNode('XLR8R')]),
         ]),
         el('p', { class: 'hero-num' }, [
           document.createTextNode(issue.issue_number ? `#${issue.issue_number}` : '—'),
