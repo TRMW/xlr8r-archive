@@ -1,0 +1,300 @@
+:root {
+  --paper: #edeae2;
+  --paper-raised: #f6f4ee;
+  --ink: #191714;
+  --ink-soft: #55524a;
+  --rule: #cac5b6;
+  --cyan: #0089c7;
+  --cyan-ink: #003a54;
+  --magenta: #d6006d;
+  --magenta-ink: #57002d;
+  --max-w: 760px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, sans-serif;
+  line-height: 1.6;
+}
+
+.wrap {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 32px 20px 80px;
+}
+
+/* Masthead: a hero numeral (issue number, or a site-wide stat on the
+   browse page) with a duotone halftone dot motif referencing offset
+   print separations -- the process this magazine was actually printed
+   with. */
+.masthead {
+  position: relative;
+  padding: 28px 24px 24px;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 28px;
+}
+
+.masthead::before {
+  content: '';
+  position: absolute;
+  top: -40px;
+  right: -40px;
+  width: 180px;
+  height: 180px;
+  background-image: radial-gradient(var(--cyan) 1.6px, transparent 1.6px);
+  background-size: 10px 10px;
+  opacity: 0.35;
+  transform: rotate(8deg);
+}
+
+.masthead::after {
+  content: '';
+  position: absolute;
+  top: -20px;
+  right: 10px;
+  width: 180px;
+  height: 180px;
+  background-image: radial-gradient(var(--magenta) 1.6px, transparent 1.6px);
+  background-size: 10px 10px;
+  opacity: 0.3;
+  transform: rotate(8deg);
+}
+
+.masthead-inner { position: relative; }
+
+.kicker {
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin: 0 0 4px;
+}
+
+.hero-num {
+  font-family: 'Archivo Black', sans-serif;
+  font-size: clamp(52px, 14vw, 88px);
+  line-height: 0.9;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.hero-sub {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 6px 0 0;
+}
+
+.hero-meta {
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin: 6px 0 0;
+}
+
+.hero-meta a { color: var(--ink-soft); }
+
+/* Small inline stat group, used on the browse masthead alongside the
+   hero numeral (issues / articles / artists indexed). */
+.stat-row {
+  display: flex;
+  gap: 20px;
+  margin-top: 10px;
+}
+
+.stat {
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.stat strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+section { margin-bottom: 32px; }
+
+h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.reader-frame {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper-raised);
+}
+
+.empty-panel {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--ink-soft);
+  font-size: 14px;
+  border: 1px dashed var(--rule);
+  border-radius: 4px;
+}
+
+.link-list, .article-list, .issue-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.link-list li, .article-list li, .issue-list li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.link-list li:last-child, .article-list li:last-child, .issue-list li:last-child {
+  border-bottom: none;
+}
+
+.link-list a, .issue-list a {
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.link-list a:hover, .issue-list a:hover { text-decoration: underline; }
+
+.link-source {
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin-left: 8px;
+}
+
+.item-title {
+  font-weight: 500;
+  margin: 0 0 4px;
+}
+
+.item-byline {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin: 0 0 6px;
+}
+
+.pill {
+  display: inline-block;
+  font-size: 12px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  margin-right: 6px;
+}
+
+.pill-type { background: var(--cyan); color: #fff; }
+.pill-artist {
+  background: transparent;
+  border: 1px solid var(--magenta);
+  color: var(--magenta-ink);
+}
+
+.empty-state { color: var(--ink-soft); font-size: 14px; }
+.load-error { color: var(--magenta-ink); font-size: 14px; }
+
+/* Search box */
+.search-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.search-input {
+  flex: 1;
+  padding: 10px 12px;
+  font-size: 15px;
+  font-family: inherit;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper-raised);
+  color: var(--ink);
+}
+
+.search-input:focus {
+  outline: 2px solid var(--cyan);
+  outline-offset: 1px;
+}
+
+.search-button {
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  border: 1px solid var(--ink);
+  border-radius: 4px;
+  background: var(--ink);
+  color: var(--paper);
+  cursor: pointer;
+}
+
+.search-button:hover { background: #322e27; }
+
+/* Issue grid */
+.issue-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.issue-card {
+  display: block;
+  padding: 14px 12px;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.issue-card:hover { border-color: var(--ink); }
+
+.issue-card .num {
+  font-family: 'Archivo Black', sans-serif;
+  font-size: 22px;
+}
+
+.issue-card .title {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-top: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 16px;
+  font-size: 14px;
+}
+
+.page-button {
+  padding: 8px 14px;
+  font-size: 14px;
+  font-family: inherit;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper-raised);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.page-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.page-status {
+  color: var(--ink-soft);
+}

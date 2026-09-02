@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XLR8R archive</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="shared.css" rel="stylesheet">
+</head>
+<body>
+<div class="wrap">
+  <div class="masthead">
+    <div class="masthead-inner">
+      <p class="kicker">XLR8R archive</p>
+      <p class="hero-num" id="hero-num">—</p>
+      <p class="hero-sub">Every issue, indexed in one place</p>
+      <div class="stat-row" id="stat-row"></div>
+    </div>
+  </div>
+
+  <section>
+    <h2>Search</h2>
+    <form class="search-form" id="search-form">
+      <input class="search-input" id="search-input" type="text" placeholder="Artist, album, writer…" autocomplete="off">
+      <button class="search-button" type="submit">Search</button>
+    </form>
+    <div id="search-results"></div>
+  </section>
+
+  <section>
+    <h2>Issues</h2>
+    <div class="issue-grid" id="issue-grid">
+      <div class="empty-state">Loading issues…</div>
+    </div>
+    <div class="pagination">
+      <button class="page-button" id="prev-page">Previous</button>
+      <span class="page-status" id="page-status"></span>
+      <button class="page-button" id="next-page">Next</button>
+    </div>
+  </section>
+</div>
+
+<script>
+  const API_BASE = window.XLR8R_API_BASE || 'http://localhost:8000';
+  const PAGE_SIZE = 24;
+
+  const typeLabels = {
+    feature: 'Feature',
+    review: 'Review',
+    interview: 'Interview',
+    audiofile: 'Audiofile',
+    machines: 'Machines',
+    'vis-ed': 'Vis-Ed',
+    'bitter-bastard': 'Bitter Bastard',
+  };
+
+  let offset = 0;
+  let total = null;
+
+  function el(tag, props = {}, children = []) {
+    const node = document.createElement(tag);
+    Object.entries(props).forEach(([k, v]) => {
+      if (k === 'class') node.className = v;
+      else node.setAttribute(k, v);
+    });
+    children.forEach((c) => node.appendChild(c));
+    return node;
+  }
+
+  async function loadStats() {
+    try {
+      const resp = await fetch(`${API_BASE}/stats`);
+      if (!resp.ok) return;
+      const stats = await resp.json();
+
+      document.getElementById('hero-num').textContent = stats.issues;
+
+      const statRow = document.getElementById('stat-row');
+      statRow.innerHTML = '';
+      statRow.appendChild(
+        el('span', { class: 'stat' }, [document.createTextNode(`${stats.articles} articles indexed`)])
+      );
+      statRow.appendChild(
+        el('span', { class: 'stat' }, [document.createTextNode(`${stats.artists} artists tagged`)])
+      );
+    } catch (err) {
+      // Stats are a nice-to-have; a failed fetch here shouldn't block the rest of the page.
+    }
+  }
+
+  function issueCard(issue) {
+    return el('a', { class: 'issue-card', href: `issue.html?id=${issue.id}` }, [
+      el('div', { class: 'num' }, [document.createTextNode(issue.issue_number ? `#${issue.issue_number}` : '—')]),
+      el('div', { class: 'title' }, [document.createTextNode(issue.title || '')]),
+    ]);
+  }
+
+  async function loadIssues() {
+    const grid = document.getElementById('issue-grid');
+    grid.innerHTML = '';
+    grid.appendChild(el('div', { class: 'empty-state' }, [document.createTextNode('Loading issues…')]));
+
+    try {
+      const resp = await fetch(`${API_BASE}/issues?limit=${PAGE_SIZE}&offset=${offset}`);
+      if (!resp.ok) throw new Error(`API returned ${resp.status}`);
+      const issues = await resp.json();
+      const totalHeader = resp.headers.get('X-Total-Count');
+      if (totalHeader !== null) total = parseInt(totalHeader, 10);
+
+      grid.innerHTML = '';
+      if (issues.length === 0) {
+        grid.appendChild(el('div', { class: 'empty-state' }, [document.createTextNode('No issues on this page.')]));
+      } else {
+        issues.forEach((issue) => grid.appendChild(issueCard(issue)));
+      }
+
+      updatePagination(issues.length);
+    } catch (err) {
+      grid.innerHTML = '';
+      grid.appendChild(el('div', { class: 'load-error' }, [document.createTextNode(`Couldn't load issues: ${err.message}`)]));
+    }
+  }
+
+  function updatePagination(pageCount) {
+    const status = document.getElementById('page-status');
+    const prevBtn = document.getElementById('prev-page');
+    const nextBtn = document.getElementById('next-page');
+
+    const shown = `${offset + 1}–${offset + pageCount}`;
+    status.textContent = total !== null ? `${shown} of ${total}` : shown;
+
+    prevBtn.disabled = offset === 0;
+    nextBtn.disabled = total !== null ? offset + PAGE_SIZE >= total : pageCount < PAGE_SIZE;
+  }
+
+  function articleResult(article) {
+    const li = el('li', {}, [el('p', { class: 'item-title' }, [document.createTextNode(article.title)])]);
+
+    if (article.author) {
+      li.appendChild(el('p', { class: 'item-byline' }, [document.createTextNode(`by ${article.author}`)]));
+    }
+
+    const pills = el('div', {});
+    if (article.article_type) {
+      pills.appendChild(
+        el('span', { class: 'pill pill-type' }, [document.createTextNode(typeLabels[article.article_type] || article.article_type)])
+      );
+    }
+    li.appendChild(pills);
+
+    if (article.issue_id) {
+      li.appendChild(
+        el('p', { style: 'margin-top:6px' }, [
+          el('a', { href: `issue.html?id=${article.issue_id}` }, [document.createTextNode('Open issue →')]),
+        ])
+      );
+    }
+
+    return li;
+  }
+
+  async function runSearch(query) {
+    const results = document.getElementById('search-results');
+    if (!query.trim()) {
+      results.innerHTML = '';
+      return;
+    }
+
+    results.innerHTML = '';
+    results.appendChild(el('div', { class: 'empty-state' }, [document.createTextNode('Searching…')]));
+
+    try {
+      const resp = await fetch(`${API_BASE}/articles/search?q=${encodeURIComponent(query)}`);
+      if (!resp.ok) throw new Error(`API returned ${resp.status}`);
+      const articles = await resp.json();
+
+      results.innerHTML = '';
+      if (articles.length === 0) {
+        results.appendChild(el('div', { class: 'empty-state' }, [document.createTextNode('No matches.')]));
+        return;
+      }
+
+      const list = el('ul', { class: 'article-list' });
+      articles.forEach((a) => list.appendChild(articleResult(a)));
+      results.appendChild(list);
+    } catch (err) {
+      results.innerHTML = '';
+      results.appendChild(el('div', { class: 'load-error' }, [document.createTextNode(`Search failed: ${err.message}`)]));
+    }
+  }
+
+  document.getElementById('search-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    runSearch(document.getElementById('search-input').value);
+  });
+
+  document.getElementById('prev-page').addEventListener('click', () => {
+    offset = Math.max(0, offset - PAGE_SIZE);
+    loadIssues();
+  });
+
+  document.getElementById('next-page').addEventListener('click', () => {
+    offset += PAGE_SIZE;
+    loadIssues();
+  });
+
+  loadStats();
+  loadIssues();
+</script>
+</body>
+</html>

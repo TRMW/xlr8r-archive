@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XLR8R archive</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="shared.css" rel="stylesheet">
+</head>
+<body>
+<div class="wrap" id="app">
+  <div class="empty-state">Loading issue…</div>
+</div>
+
+<script>
+  // Point this at your running backend.
+  const API_BASE = window.XLR8R_API_BASE || 'http://localhost:8000';
+
+  const params = new URLSearchParams(window.location.search);
+  const issueId = params.get('id') || '1';
+
+  const typeLabels = {
+    feature: 'Feature',
+    review: 'Review',
+    interview: 'Interview',
+    audiofile: 'Audiofile',
+    machines: 'Machines',
+    'vis-ed': 'Vis-Ed',
+    'bitter-bastard': 'Bitter Bastard',
+  };
+
+  const sourceLabels = {
+    archive_org: 'archive.org',
+    wayback: 'Wayback Machine',
+    hyperreal: 'hyperreal.org',
+    other: 'other source',
+  };
+
+  function el(tag, props = {}, children = []) {
+    const node = document.createElement(tag);
+    Object.entries(props).forEach(([k, v]) => {
+      if (k === 'class') node.className = v;
+      else if (k === 'html') node.innerHTML = v;
+      else node.setAttribute(k, v);
+    });
+    children.forEach((c) => node.appendChild(c));
+    return node;
+  }
+
+  function renderMasthead(issue) {
+    const date = issue.publish_date
+      ? new Date(issue.publish_date).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+      : null;
+
+    return el('div', { class: 'masthead' }, [
+      el('div', { class: 'masthead-inner' }, [
+        el('p', { class: 'kicker' }, [
+          el('a', { href: 'browse.html', style: 'color:inherit;text-decoration:none' }, [document.createTextNode('XLR8R')]),
+        ]),
+        el('p', { class: 'hero-num' }, [
+          document.createTextNode(issue.issue_number ? `#${issue.issue_number}` : '—'),
+        ]),
+        el('p', { class: 'hero-sub' }, [document.createTextNode(issue.title || '')]),
+        el('p', { class: 'hero-meta' }, [
+          document.createTextNode([date, sourceLabels[issue.source] || issue.source].filter(Boolean).join(' · ')),
+        ]),
+      ]),
+    ]);
+  }
+
+  function renderReader(contentLinks) {
+    const embed = contentLinks.find((c) => c.link_type === 'pdf_embed');
+    const section = el('section', {}, [el('h2', {}, [document.createTextNode('Read this issue')])]);
+
+    if (embed) {
+      section.appendChild(
+        el('iframe', {
+          class: 'reader-frame',
+          src: embed.url,
+          loading: 'lazy',
+          title: 'Issue reader',
+        })
+      );
+    } else {
+      section.appendChild(
+        el('div', { class: 'empty-panel' }, [
+          document.createTextNode("No embedded reader found for this issue yet."),
+        ])
+      );
+    }
+    return section;
+  }
+
+  function renderOtherLinks(contentLinks) {
+    const others = contentLinks.filter((c) => c.link_type !== 'pdf_embed');
+    if (others.length === 0) return null;
+
+    const list = el('ul', { class: 'link-list' });
+    others.forEach((link) => {
+      list.appendChild(
+        el('li', {}, [
+          el('a', { href: link.url, target: '_blank', rel: 'noopener' }, [
+            document.createTextNode(link.title || link.url),
+          ]),
+          el('span', { class: 'link-source' }, [
+            document.createTextNode(sourceLabels[link.source] || link.source),
+          ]),
+        ])
+      );
+    });
+
+    return el('section', {}, [el('h2', {}, [document.createTextNode('Also found for this issue')]), list]);
+  }
+
+  function renderArticles(articles) {
+    const section = el('section', {}, [el('h2', {}, [document.createTextNode('Articles')])]);
+
+    if (!articles || articles.length === 0) {
+      section.appendChild(
+        el('div', { class: 'empty-state' }, [
+          document.createTextNode('No article-level data for this issue yet.'),
+        ])
+      );
+      return section;
+    }
+
+    const list = el('ul', { class: 'article-list' });
+    articles.forEach((a) => {
+      const li = el('li', {}, [el('p', { class: 'item-title' }, [document.createTextNode(a.title)])]);
+
+      if (a.author) {
+        li.appendChild(el('p', { class: 'item-byline' }, [document.createTextNode(`by ${a.author}`)]));
+      }
+
+      const pills = el('div', {});
+      if (a.article_type) {
+        pills.appendChild(
+          el('span', { class: 'pill pill-type' }, [document.createTextNode(typeLabels[a.article_type] || a.article_type)])
+        );
+      }
+      (a.artists || []).forEach((artist) => {
+        pills.appendChild(el('span', { class: 'pill pill-artist' }, [document.createTextNode(artist.name)]));
+      });
+      li.appendChild(pills);
+
+      list.appendChild(li);
+    });
+
+    section.appendChild(list);
+    return section;
+  }
+
+  async function load() {
+    const app = document.getElementById('app');
+    try {
+      const resp = await fetch(`${API_BASE}/issues/${issueId}/full`);
+      if (!resp.ok) throw new Error(`API returned ${resp.status}`);
+      const issue = await resp.json();
+
+      app.innerHTML = '';
+      app.appendChild(renderMasthead(issue));
+      app.appendChild(renderReader(issue.content_links || []));
+      const others = renderOtherLinks(issue.content_links || []);
+      if (others) app.appendChild(others);
+      app.appendChild(renderArticles(issue.articles || []));
+    } catch (err) {
+      app.innerHTML = '';
+      app.appendChild(
+        el('div', { class: 'load-error' }, [
+          document.createTextNode(`Couldn't load this issue: ${err.message}`),
+        ])
+      );
+    }
+  }
+
+  load();
+</script>
+</body>
+</html>
