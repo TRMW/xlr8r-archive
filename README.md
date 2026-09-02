@@ -11,7 +11,8 @@ single unified page per issue without copying anyone's files.
 ## Layout
 
 ```
-schema.sql                          Postgres schema
+backend/schema.sql                  Postgres schema (auto-applied on first boot by migrate.py)
+backend/app/migrate.py               One-shot schema bootstrap, runs on app startup
 scripts/fetch_archive_metadata.py   Issue metadata + embed link from archive.org
 scripts/fetch_wayback_links.py      Matches Wayback snapshots of xlr8r.com/magazine/<n> to issues
 scripts/fetch_hyperreal_links.py    Crawls the hyperreal.org zine-era pages, matches/creates issues
@@ -28,13 +29,19 @@ frontend/browse.html                Site home: live stats, search, paginated iss
 
 ```bash
 createdb xlr8r_archive
-psql xlr8r_archive < schema.sql
 
 cd backend
 pip install -r requirements.txt
 export DATABASE_URL=postgresql://localhost/xlr8r_archive
 uvicorn app.main:app --reload
 ```
+
+The app applies `schema.sql` itself on first startup against an empty
+database (see `app/migrate.py`) — no manual `psql` step needed, locally
+or on Railway. It only ever does this once: it checks whether the
+`issues` table already exists and skips entirely if so. Schema changes
+after that point need a real migration step of their own, not an edit
+to `schema.sql`, since it won't be re-run against an existing database.
 
 ## Populate content
 
@@ -142,14 +149,20 @@ pointing the service at `backend/` as its root directory:
   process is up)
 - Env var: `DATABASE_URL` — point it at a Postgres service in the same
   project (Railway's reference syntax `${{Postgres.DATABASE_URL}}` works)
-- `schema.sql` isn't run automatically — apply it once against the
-  provisioned Postgres instance before the API's first request that
-  touches the DB
+- Schema is applied automatically on first boot — nothing manual to run
+  against the provisioned Postgres instance
 
 The frontend (`frontend/*.html`) is static and doesn't need Railway —
 any static host works, or a second minimal Railway service serving the
 `frontend/` directory. Set `window.XLR8R_API_BASE` in the HTML to the
 backend service's public Railway domain.
+
+If you ever re-provision Postgres from a raw `postgres:16` image (rather
+than Railway's managed Postgres template) with a volume mounted at
+`/var/lib/postgresql/data`: set `PGDATA=/var/lib/postgresql/data/pgdata`
+on that service. Without it, `initdb` refuses to run because the mount
+point isn't empty (it has a `lost+found` directory), and the container
+crash-loops on every boot.
 
 ## Not built yet
 

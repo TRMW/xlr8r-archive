@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import Depends, FastAPI, Query, Response
@@ -6,9 +7,17 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from . import models, schemas
-from .db import get_db
+from .db import engine, get_db
+from .migrate import run_migrations
 
-app = FastAPI(title="XLR8R Archive API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    run_migrations(engine)
+    yield
+
+
+app = FastAPI(title="XLR8R Archive API", lifespan=lifespan)
 
 # The frontend is a set of static files, not served from this app, so
 # browser requests to the API come from a different origin. Wide open
