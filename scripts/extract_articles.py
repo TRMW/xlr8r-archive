@@ -1,7 +1,15 @@
 """
 Populate the `articles` table by pulling each issue's OCR'd full text
-from archive.org (the "_djvu.txt" file that scanned items usually have)
 and splitting it into per-article chunks.
+
+OCR text URLs come from `content_links` (link_type='ocr_text'), written
+there by fetch_archive_metadata.py -- not re-derived from the issue's
+`identifier` here. That matters because for issues pulled out of the
+XLR8R101 bundle, `identifier` is a synthetic id ("XLR8R101-101") that
+isn't a real archive.org item on its own; the actual OCR file lives
+inside the bundle item under its own filename. Reading the URL straight
+from content_links works the same way for bundle-derived and standalone
+issues alike, with no special-casing needed here.
 
 Important: `body_text` is stored for full-text SEARCH only. The API
 (`ArticleOut` in schemas.py) never returns it, and the issue page never
@@ -25,6 +33,8 @@ Usage:
     python extract_articles.py --dsn postgresql://user:pass@host/db --dry-run
     python extract_articles.py --dsn postgresql://user:pass@host/db
     python extract_articles.py --dsn ... --issue-id 42   # just one issue
+    python extract_articles.py --url https://archive.org/download/XLR8R101/XLR8R_101_djvu.txt
+                                                          # test segmentation, no DB needed
 """
 import argparse
 import re
@@ -34,9 +44,6 @@ import time
 import psycopg2
 import psycopg2.extras
 import requests
-
-METADATA_URL = "https://archive.org/metadata/{identifier}"
-DOWNLOAD_URL = "https://archive.org/download/{identifier}/{filename}"
 
 SECTION_HEADERS = {
     "audiofile": "audiofile",
@@ -58,18 +65,6 @@ BYLINE_RE = re.compile(r"^\s*by\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3
 MIN_CHUNK_CHARS = 200  # drop slivers that are almost certainly OCR noise, not a real article
 
 
-def find_djvu_txt_url(identifier: str):
-    resp = requests.get(METADATA_URL.format(identifier=identifier), timeout=30)
-    resp.raise_for_status()
-    meta = resp.json()
-    for f in meta.get("files", []):
-        name = f.get("name", "")
-        fmt = f.get("format", "")
-        if fmt == "DjVuTXT" or name.endswith("_djvu.txt"):
-            return DOWNLOAD_URL.format(identifier=identifier, filename=name)
-    return None
-
-
 def fetch_text(url: str) -> str:
     resp = requests.get(url, timeout=60)
     resp.raise_for_status()
@@ -81,16 +76,12 @@ def split_into_chunks(full_text: str):
     """Returns a list of (article_type, title, author, body_text)."""
     lines = full_text.splitlines()
 
-    # Find header line indices and their section type.
     boundaries = []  # (line_index, article_type)
     for i, line in enumerate(lines):
         m = HEADER_LINE_RE.match(line.strip())
         if m:
             boundaries.append((i, SECTION_HEADERS[m.group(1).lower()]))
 
-    # Build (start, end, type) spans. Everything before the first
-    # boundary is one lead "feature" chunk (may be empty if the issue
-    # opens straight into a named section, which is fine).
     spans = []
     first = boundaries[0][0] if boundaries else len(lines)
     if first > 0:
@@ -105,7 +96,6 @@ def split_into_chunks(full_text: str):
         if len(body) < MIN_CHUNK_CHARS:
             continue
 
-        # Title: first non-empty line, skipping the header line itself.
         body_lines = [l.strip() for l in body.splitlines() if l.strip()]
         title_lines = [l for l in body_lines if l.lower() not in SECTION_HEADERS]
         title = title_lines[0][:200] if title_lines else kind.title()
@@ -118,11 +108,13 @@ def split_into_chunks(full_text: str):
     return chunks
 
 
-FETCH_ARCHIVE_ISSUES_SQL = """
-SELECT id, identifier, source_url FROM issues
-WHERE source = 'archive_org'
+FETCH_ISSUES_WITH_OCR_SQL = """
+SELECT i.id, i.title, i.source_url, cl.url AS ocr_url
+FROM issues i
+JOIN content_links cl ON cl.issue_id = i.id AND cl.link_type = 'ocr_text'
+WHERE 1=1
   {issue_filter}
-ORDER BY id;
+ORDER BY i.id;
 """
 
 DELETE_EXISTING_ARTICLES_SQL = "DELETE FROM articles WHERE issue_id = %(issue_id)s;"
@@ -144,22 +136,16 @@ def main():
         help="Delete existing articles for an issue before inserting (default: append)",
     )
     parser.add_argument(
-        "--identifier",
-        help="Test segmentation on a single archive.org identifier directly, no database needed "
-             "(e.g. --identifier xlr8r-issue-10). Always dry-run.",
+        "--url",
+        help="Test segmentation on a direct OCR text URL, no database needed "
+             "(e.g. --url https://archive.org/download/XLR8R101/XLR8R_101_djvu.txt)",
     )
     args = parser.parse_args()
 
-    if args.identifier:
-        try:
-            txt_url = find_djvu_txt_url(args.identifier)
-        except requests.RequestException as e:
-            sys.exit(f"metadata fetch failed: {e}")
-        if not txt_url:
-            sys.exit("no OCR text file found for that identifier")
-        full_text = fetch_text(txt_url)
+    if args.url:
+        full_text = fetch_text(args.url)
         chunks = split_into_chunks(full_text)
-        print(f"{args.identifier}: {len(chunks)} chunk(s) found", file=sys.stderr)
+        print(f"{args.url}: {len(chunks)} chunk(s) found", file=sys.stderr)
         for kind, title, author, body in chunks:
             print(f"  [{kind}] {title!r} by {author!r} ({len(body)} chars)")
         return
@@ -171,44 +157,29 @@ def main():
     if conn:
         conn.autocommit = True
 
-    # Read issue list.
-    if conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            issue_filter = "AND id = %(issue_id)s" if args.issue_id else ""
-            cur.execute(
-                FETCH_ARCHIVE_ISSUES_SQL.format(issue_filter=issue_filter),
-                {"issue_id": args.issue_id},
-            )
-            issues = cur.fetchall()
-    else:
-        # dry-run without a DB: nothing to read issues from, so require --issue-id
-        # to be paired with a manual identifier isn't supported here -- dry-run
-        # still needs a DB to know which issues/identifiers exist.
+    if not conn:
         sys.exit("--dry-run currently still needs --dsn, to read the issue list. "
                  "It won't write anything -- just add --dsn alongside --dry-run.")
 
-    print(f"Processing {len(issues)} archive.org issue(s)", file=sys.stderr)
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        issue_filter = "AND i.id = %(issue_id)s" if args.issue_id else ""
+        cur.execute(
+            FETCH_ISSUES_WITH_OCR_SQL.format(issue_filter=issue_filter),
+            {"issue_id": args.issue_id},
+        )
+        issues = cur.fetchall()
+
+    print(f"Processing {len(issues)} issue(s) with OCR text available", file=sys.stderr)
 
     for issue in issues:
-        identifier = issue["identifier"]
         try:
-            txt_url = find_djvu_txt_url(identifier)
+            full_text = fetch_text(issue["ocr_url"])
         except requests.RequestException as e:
-            print(f"skip {identifier}: metadata fetch failed ({e})", file=sys.stderr)
-            continue
-
-        if not txt_url:
-            print(f"skip {identifier}: no OCR text file found", file=sys.stderr)
-            continue
-
-        try:
-            full_text = fetch_text(txt_url)
-        except requests.RequestException as e:
-            print(f"skip {identifier}: text fetch failed ({e})", file=sys.stderr)
+            print(f"skip issue {issue['id']}: text fetch failed ({e})", file=sys.stderr)
             continue
 
         chunks = split_into_chunks(full_text)
-        print(f"{identifier}: {len(chunks)} chunk(s) found", file=sys.stderr)
+        print(f"issue {issue['id']} ({issue['title']}): {len(chunks)} chunk(s) found", file=sys.stderr)
 
         if args.dry_run:
             for kind, title, author, body in chunks:
@@ -231,7 +202,7 @@ def main():
                     },
                 )
 
-        time.sleep(0.5)  # be polite to archive.org
+        time.sleep(0.3)  # be polite to archive.org
 
     if conn:
         conn.close()
