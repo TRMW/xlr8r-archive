@@ -1,3 +1,13 @@
+# One-shot content pipeline.
+#
+# NOTE: this service auto-deploys on every push to main like any other,
+# so whatever start command is set here re-runs on each commit. Keep it
+# idempotent. extract_articles.py needs --replace for exactly this
+# reason: without it, each run appends another copy of every article
+# (a re-run took the article count from 304 to 817 before this was
+# fixed). The fetch scripts already upsert on conflict, so they're safe.
+#
+# Set startCommand to audit_check.py when you just want diagnostics.
 [deploy]
-startCommand = "python fetch_archive_metadata.py --dsn $DATABASE_URL && python -c \"import os,psycopg2; c=psycopg2.connect(os.environ['DATABASE_URL']); c.autocommit=True; cur=c.cursor(); cur.execute(\\\"DELETE FROM issues WHERE identifier = 'XLR8R101'\\\"); print('cleaned up stale bundle-as-one-issue row:', cur.rowcount)\" && python fetch_wayback_links.py --dsn $DATABASE_URL && python fetch_hyperreal_links.py --dsn $DATABASE_URL && python extract_articles.py --dsn $DATABASE_URL && python -c \"import os,psycopg2; c=psycopg2.connect(os.environ['DATABASE_URL']); cur=c.cursor(); cur.execute('SELECT count(*) FROM issues'); i=cur.fetchone()[0]; cur.execute('SELECT count(*) FROM articles'); a=cur.fetchone()[0]; cur.execute('SELECT count(*) FROM content_links'); l=cur.fetchone()[0]; print(f'FINAL_COUNTS issues={i} articles={a} content_links={l}')\" && echo PIPELINE_COMPLETE"
+startCommand = "python fetch_archive_metadata.py --dsn $DATABASE_URL && python fetch_wayback_links.py --dsn $DATABASE_URL && python fetch_hyperreal_links.py --dsn $DATABASE_URL && python extract_articles.py --replace --dsn $DATABASE_URL && python audit_check.py"
 restartPolicyType = "NEVER"

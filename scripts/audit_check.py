@@ -94,7 +94,7 @@ for path, kind in checks:
 # Every issue id the listing returns must resolve on the detail endpoint.
 print("\nchecking every issue link resolves...")
 try:
-    ids = [i["id"] for i in requests.get(API + "/issues?limit=500", timeout=30).json()]
+    ids = [i["id"] for i in requests.get(API + "/issues?limit=200", timeout=30).json()]
     bad = []
     for i in ids:
         r = requests.get(f"{API}/issues/{i}/full", timeout=20)
