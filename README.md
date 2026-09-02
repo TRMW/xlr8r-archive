@@ -24,6 +24,7 @@ frontend/shared.css                 Design tokens + components shared by both pa
 frontend/issue.html                 Single-issue page (masthead, embedded reader, content links, articles)
 frontend/index.html                 Site home: live stats, search, paginated issue grid
 frontend/package.json               Pulls in `serve` so Railway can host the static files
+frontend/serve.json                 Disables serve's clean-URLs redirect (it strips query strings)
 frontend/railway.toml               Railway deploy config for the frontend service
 ```
 
@@ -119,6 +120,11 @@ different environment.
   renders the masthead, an embedded reader (iframed straight from
   archive.org — nothing downloaded), any other content found for the
   issue, and its article list.
+
+`serve` (used to host these on Railway) redirects `/issue.html` to
+`/issue` by default ("clean URLs") and drops the query string in that
+redirect — every link would land on `id=1` regardless of which issue
+was clicked. `serve.json` disables that.
 
 The backend has CORS wide open (`allow_origins=["*"]`) since these pages
 are static files served separately from the API.
