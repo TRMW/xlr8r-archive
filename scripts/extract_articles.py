@@ -19,15 +19,28 @@ thing from publishing full article text, and this pipeline is built to
 keep the second door closed: don't add body_text to any response schema
 without thinking hard about it first.
 
-Segmentation approach (heuristic, not exact):
-XLR8R issues have recurring named sections -- Audiofile, Machines,
-Vis-Ed, Bitter Bastard, and Reviews -- which show up as short header-like
-lines in the OCR text. We split on those. Everything before the first
-recognized header becomes a single "feature" chunk (cover story / lead
-features, which don't have a consistent header). This is a first pass:
-OCR noise and layout quirks (multi-column pages interleaving text) will
-produce some garbage chunks and mis-attributed authors. Treat the output
-as something to spot-check and refine, not a finished dataset.
+Segmentation approach:
+XLR8R's real per-article boundary is its byline convention -- a line
+reading "WORDS: <author> PHOTO(S)/IMAGE(S)/ILLUSTRATION(S): <credit>".
+A named department like Audiofile is many separate articles, each with
+its own byline, not one block of text -- splitting on the department
+header alone (an earlier version of this script did that) produces one
+giant chunk per department, and picking "the first line" of that chunk
+as a title grabs whatever OCR text happened to be first, which is
+usually mid-sentence junk from an unrelated article.
+
+Titles come from the block of ALL-CAPS lines directly above a byline
+(this magazine sets titles/deks in caps, distinct from mixed-case body
+prose). Content with no byline (capsule reviews, occasional short
+byline-less pieces) falls back to coarse section-span chunking so
+nothing is silently dropped, just less precisely titled -- reviews in
+particular are dense, heavily OCR-corrupted blurbs not worth trying to
+split individually.
+
+This is still a heuristic, not a real layout parser -- OCR noise will
+still produce some rough edges, particularly for older/lower-quality
+scans. Verified against real fetched OCR text before being pointed at
+production; expect it to need occasional review, not to be perfect.
 
 Usage:
     python extract_articles.py --dsn postgresql://user:pass@host/db --dry-run
@@ -45,7 +58,9 @@ import psycopg2
 import psycopg2.extras
 import requests
 
-SECTION_HEADERS = {
+# --- Segmentation -----------------------------------------------------
+
+SECTION_KEYWORDS = {
     "audiofile": "audiofile",
     "machines": "machines",
     "vis-ed": "vis-ed",
@@ -53,34 +68,70 @@ SECTION_HEADERS = {
     "bitter bastard": "bitter-bastard",
     "reviews": "review",
 }
+STANDALONE_NOISE_WORDS = set(SECTION_KEYWORDS.keys()) | {"prefix"}
+
+BYLINE_RE = re.compile(
+    r"^\s*WORDS:\s*(?P<author>[A-Z][A-Za-z.&'\- ]*?)\s+"
+    r"(?:PHOTOS?|IMAGES?|ILLUSTRATIONS?)\s*:\s*.+$"
+)
+
+# OCR-garbled page furniture -- running headers like "II PREFIX II AUDIOFILE"
+# repeat on every page within a section. Not real content.
+NOISE_RE = re.compile(r"^\s*II\s+[A-Z][A-Z \-]*\s*(II\s*)?[A-Z \-]*\s*$")
+
 HEADER_LINE_RE = re.compile(
-    r"^\s*(" + "|".join(re.escape(k) for k in SECTION_HEADERS) + r")\s*$",
+    r"^\s*(" + "|".join(re.escape(k) for k in SECTION_KEYWORDS) + r")\s*$",
     re.IGNORECASE,
 )
 
-# "by Firstname Lastname" near the top of a chunk, allowing OCR-typical
-# punctuation noise around it.
-BYLINE_RE = re.compile(r"^\s*by\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})\s*$", re.MULTILINE)
-
-MIN_CHUNK_CHARS = 200  # drop slivers that are almost certainly OCR noise, not a real article
+TITLE_LINE_MAX = 20  # chars; lines at/under this merge into a multi-line title
+MIN_CHUNK_CHARS = 150
+ALLOWED_TITLE_CHARS = re.compile(r"^[A-Za-z0-9 &'.,\-!?:()/\"]+$")
 
 
-def fetch_text(url: str) -> str:
-    resp = requests.get(url, timeout=60)
-    resp.raise_for_status()
-    resp.encoding = resp.encoding or "utf-8"
-    return resp.text
+def is_shouty(line: str) -> bool:
+    """True if the line's letters are overwhelmingly uppercase -- this
+    magazine sets titles and deks entirely in caps, distinct from normal
+    mixed-case body prose, which is a reliable signal to lean on."""
+    letters = [c for c in line if c.isalpha()]
+    if len(letters) < 2:
+        return False
+    upper = sum(1 for c in letters if c.isupper())
+    return upper / len(letters) >= 0.8
 
 
-def split_into_chunks(full_text: str):
-    """Returns a list of (article_type, title, author, body_text)."""
-    lines = full_text.splitlines()
+def is_noise_line(line: str) -> bool:
+    if NOISE_RE.match(line):
+        return True
+    if BYLINE_RE.match(line):
+        return True
+    return line.strip().lower() in STANDALONE_NOISE_WORDS
 
-    boundaries = []  # (line_index, article_type)
+
+def coarse_section_spans(lines):
+    """(start, end, kind) wherever a section name shows up as a heading --
+    either alone on its own line, or embedded in a running-header noise
+    line like 'II PREFIX II AUDIOFILE' (a section's own opening header is
+    often OCR'd merged with that running-header prefix, so a
+    keyword-alone match misses it). Single source of truth for which
+    named section a line belongs to."""
+    boundaries = []
     for i, line in enumerate(lines):
-        m = HEADER_LINE_RE.match(line.strip())
+        stripped = line.strip()
+        m = HEADER_LINE_RE.match(stripped)
         if m:
-            boundaries.append((i, SECTION_HEADERS[m.group(1).lower()]))
+            boundaries.append((i, SECTION_KEYWORDS[m.group(1).lower()]))
+            continue
+        if NOISE_RE.match(stripped):
+            low = stripped.lower()
+            matched = False
+            for key, kind in SECTION_KEYWORDS.items():
+                if re.search(rf"\b{re.escape(key)}\b", low):
+                    boundaries.append((i, kind))
+                    matched = True
+                    break
+            if not matched and re.search(r"\bprefix\b", low):
+                boundaries.append((i, "feature"))
 
     spans = []
     first = boundaries[0][0] if boundaries else len(lines)
@@ -89,23 +140,161 @@ def split_into_chunks(full_text: str):
     for idx, (start, kind) in enumerate(boundaries):
         end = boundaries[idx + 1][0] if idx + 1 < len(boundaries) else len(lines)
         spans.append((start, end, kind))
+    return spans
 
-    chunks = []
+
+def build_section_map(spans, num_lines):
+    kind_by_line = ["feature"] * num_lines
+    end_by_line = [num_lines] * num_lines
     for start, end, kind in spans:
-        body = "\n".join(lines[start:end]).strip()
+        for i in range(start, min(end, num_lines)):
+            kind_by_line[i] = kind
+            end_by_line[i] = end
+    return kind_by_line, end_by_line
+
+
+def _clean_title(parts):
+    title = " ".join(parts).strip(" -\u2013\u2014.")
+    title = re.sub(r"[\u00ae\u00a9|]", "", title)
+    title = re.sub(r"\s{2,}", " ", title).strip()
+    if not title:
+        return None
+    # Reject titles that are mostly OCR garbage (stray symbols, junk from
+    # misread cover-line/masthead text) rather than publish something like
+    # a garbled cover strapline as if it were a real article title.
+    if not ALLOWED_TITLE_CHARS.match(title):
+        return None
+    if len(title.split()) < 2 and len(title) < 4:
+        return None
+    return title
+
+
+def extract_title(lines, byline_index):
+    """Walk upward from a byline line, collecting the block of consecutive
+    shouty (all-caps) lines directly above it -- that's the title/dek
+    block, top-to-bottom order title-then-dek. Short leading lines (title
+    fragments wrapped across lines, e.g. 'FAT' / 'FREDDY'S' / 'DROP')
+    merge together; once cumulative length passes TITLE_LINE_MAX we've
+    moved from the title into the longer dek sentence, so stop there."""
+    block = []
+    i = byline_index - 1
+    while i >= 0 and i >= byline_index - 12:
+        line = lines[i].strip()
+        if not line:
+            i -= 1
+            continue
+        if is_noise_line(line):
+            i -= 1
+            continue
+        if not is_shouty(line):
+            break
+        block.insert(0, line)
+        i -= 1
+
+    if not block:
+        return None
+
+    kept, total = [], 0
+    for line in block:
+        if kept and total + len(line) > TITLE_LINE_MAX:
+            break
+        kept.append(line)
+        total += len(line)
+
+    return _clean_title(kept)
+
+
+def forward_title(lines, start_index, limit_index):
+    """Same idea as extract_title but scanning forward, for byline-less
+    spans (no WORDS: line to anchor on)."""
+    block = []
+    i = start_index
+    while i < limit_index and i < start_index + 12:
+        line = lines[i].strip()
+        if not line:
+            i += 1
+            if block:
+                break
+            continue
+        if is_noise_line(line):
+            i += 1
+            continue
+        if not is_shouty(line):
+            break
+        block.append(line)
+        i += 1
+
+    kept, total = [], 0
+    for line in block:
+        if kept and total + len(line) > TITLE_LINE_MAX:
+            break
+        kept.append(line)
+        total += len(line)
+
+    return _clean_title(kept)
+
+
+def split_into_articles(full_text: str):
+    """Returns a list of (article_type, title, author, body_text)."""
+    lines = full_text.splitlines()
+    spans = coarse_section_spans(lines)
+    section_kind, section_end = build_section_map(spans, len(lines))
+
+    byline_matches = [i for i, line in enumerate(lines) if BYLINE_RE.match(line.strip())]
+
+    articles = []
+    claimed = []  # every byline's range, claimed whether or not it became an article
+
+    for idx, byline_i in enumerate(byline_matches):
+        author = BYLINE_RE.match(lines[byline_i].strip()).group("author").strip()
+        body_start = byline_i + 1
+        next_byline = byline_matches[idx + 1] if idx + 1 < len(byline_matches) else len(lines)
+        # Never let a body run past the end of its own section -- otherwise
+        # the last byline article before a Reviews/Machines/etc. transition
+        # swallows everything up to the next byline, which could be an
+        # entire following section with no byline of its own yet.
+        body_end = min(next_byline, section_end[byline_i])
+        claim_start = max(0, byline_i - 12)
+        claimed.append((claim_start, body_end))
+
+        body = "\n".join(lines[body_start:body_end]).strip()
         if len(body) < MIN_CHUNK_CHARS:
             continue
 
-        body_lines = [l.strip() for l in body.splitlines() if l.strip()]
-        title_lines = [l for l in body_lines if l.lower() not in SECTION_HEADERS]
-        title = title_lines[0][:200] if title_lines else kind.title()
+        title = extract_title(lines, byline_i) or f"Untitled ({author})"
+        kind = section_kind[byline_i]
+        articles.append((kind, title, author, body))
 
-        author_match = BYLINE_RE.search(body)
-        author = author_match.group(1).strip() if author_match else None
+    # Fallback: anything substantial inside a coarse section span that
+    # wasn't claimed by a byline article becomes its own chunk (author
+    # unknown) instead of being silently dropped.
+    for start, end, kind in spans:
+        cursor = start
+        for cs, ce in sorted(c for c in claimed if c[0] < end and c[1] > start):
+            gap_end = min(cs, end)
+            if gap_end > cursor:
+                gap_text = "\n".join(lines[cursor:gap_end]).strip()
+                if len(gap_text) >= MIN_CHUNK_CHARS:
+                    title = forward_title(lines, cursor, gap_end) or kind.title()
+                    articles.append((kind, title, None, gap_text))
+            cursor = max(cursor, ce)
+        if cursor < end:
+            gap_text = "\n".join(lines[cursor:end]).strip()
+            if len(gap_text) >= MIN_CHUNK_CHARS:
+                title = forward_title(lines, cursor, end) or kind.title()
+                articles.append((kind, title, None, gap_text))
 
-        chunks.append((kind, title, author, body))
+    return articles
 
-    return chunks
+
+# --- Fetching + DB plumbing --------------------------------------------
+
+
+def fetch_text(url: str) -> str:
+    resp = requests.get(url, timeout=60)
+    resp.raise_for_status()
+    resp.encoding = resp.encoding or "utf-8"
+    return resp.text
 
 
 FETCH_ISSUES_WITH_OCR_SQL = """
@@ -144,9 +333,9 @@ def main():
 
     if args.url:
         full_text = fetch_text(args.url)
-        chunks = split_into_chunks(full_text)
-        print(f"{args.url}: {len(chunks)} chunk(s) found", file=sys.stderr)
-        for kind, title, author, body in chunks:
+        articles = split_into_articles(full_text)
+        print(f"{args.url}: {len(articles)} article(s) found", file=sys.stderr)
+        for kind, title, author, body in articles:
             print(f"  [{kind}] {title!r} by {author!r} ({len(body)} chars)")
         return
 
@@ -178,18 +367,18 @@ def main():
             print(f"skip issue {issue['id']}: text fetch failed ({e})", file=sys.stderr)
             continue
 
-        chunks = split_into_chunks(full_text)
-        print(f"issue {issue['id']} ({issue['title']}): {len(chunks)} chunk(s) found", file=sys.stderr)
+        articles = split_into_articles(full_text)
+        print(f"issue {issue['id']} ({issue['title']}): {len(articles)} article(s) found", file=sys.stderr)
 
         if args.dry_run:
-            for kind, title, author, body in chunks:
+            for kind, title, author, body in articles:
                 print(f"  [{kind}] {title!r} by {author!r} ({len(body)} chars)")
             continue
 
         with conn.cursor() as cur:
             if args.replace:
                 cur.execute(DELETE_EXISTING_ARTICLES_SQL, {"issue_id": issue["id"]})
-            for kind, title, author, body in chunks:
+            for kind, title, author, body in articles:
                 cur.execute(
                     INSERT_ARTICLE_SQL,
                     {
