@@ -1,0 +1,3 @@
+[deploy]
+startCommand = "python fetch_archive_metadata.py --dsn $DATABASE_URL && python fetch_wayback_links.py --dsn $DATABASE_URL && python fetch_hyperreal_links.py --dsn $DATABASE_URL && python extract_articles.py --dsn $DATABASE_URL && echo PIPELINE_COMPLETE"
+restartPolicyType = "NEVER"
