@@ -219,7 +219,8 @@ one in `railway.toml`.
 
 - Frontend: https://frontend-production-1f209.up.railway.app
 - API: https://backend-production-8c32.up.railway.app
-- 69 issues, 1029 articles, 205 content links; every issue link resolves.
+- 74 issues, 1029 articles, 211 content links; every issue link resolves.
+- Coverage: #9, #10, and #67-138 complete. See Known gaps for #1-8, #11-66.
 
 ## Known gaps
 
@@ -253,10 +254,28 @@ one in `railway.toml`.
 - **No artist tagging.** The `artists`/`article_artists` tables exist
   and the API and UI both handle them, but nothing populates them, so
   the count stays 0 and the browse page hides that stat.
-- **hyperreal.org is unreachable from Railway.** DNS for
-  `media.hyperreal.org` fails from inside Railway's network, though the
-  site resolves fine elsewhere. Those zine-era issues are missing until
-  that's worked around or the script is run from somewhere else.
+- **Coverage stops at #67, and that's a source limit, not a crawler
+  limit.** We have #9, #10, and #67-138 complete (74 issues). Missing:
+  #1-8 and #11-66 (64 issues). All three available sources have been
+  worked through and are exhausted:
+  - the archive.org bundle (`XLR8R101`) simply starts at #67;
+  - Wayback captures of `xlr8r.com/magazine/<n>` only exist from when
+    that site was running, which post-dates the zine era -- 322
+    snapshots yielded only 4 issues not already covered;
+  - media.hyperreal.org, the zine-era mirror, has just 5 archived pages
+    in total, of which 2 carry an issue number (yielding #9).
+
+  Closing this gap needs a source that isn't online yet: a library
+  holding (ISSN 1526-4246, OCLC 42250168), a collector willing to scan,
+  or whoever holds the publisher's own archive. More crawling of the
+  current sources will not produce these issues.
+
+  Note eBay is deliberately not used: their User Agreement prohibits
+  automated access without prior written permission, and their
+  robots.txt explicitly blocks Anthropic's crawler among others. It
+  would also be poor archival data -- listings expire, seller-entered
+  issue numbers are often wrong, and the cover photos are the sellers'
+  copyright.
 - **Bundle embed deep-linking is unverified.** Most issues are one file
   inside the `XLR8R101` item, embedded as
   `archive.org/embed/XLR8R101/XLR8R_<n>`. If archive.org ignores the
