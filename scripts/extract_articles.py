@@ -342,7 +342,7 @@ def main():
     if not args.dry_run and not args.dsn:
         sys.exit("Provide --dsn or run with --dry-run")
 
-    conn = psycopg2.connect(args.dsn) if not args.dry_run else None
+    conn = psycopg2.connect(args.dsn) if args.dsn else None
     if conn:
         conn.autocommit = True
 
