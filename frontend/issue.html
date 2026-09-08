@@ -87,7 +87,11 @@
     } else {
       section.appendChild(
         el('div', { class: 'empty-panel' }, [
-          document.createTextNode("No embedded reader found for this issue yet."),
+          document.createTextNode(
+            "No scan of this issue has been found yet. Its existence and " +
+            "issue number come from the publisher's own archived site; if " +
+            "a scan turns up later it'll show up here."
+          ),
         ])
       );
     }
