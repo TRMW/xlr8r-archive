@@ -144,8 +144,8 @@
   }
 
   function articleResult(article) {
-    const titleNode = article.source_url
-      ? el('a', { href: article.source_url, target: '_blank', rel: 'noopener' }, [
+    const titleNode = article.reader_url
+      ? el('a', { href: article.reader_url, target: '_blank', rel: 'noopener' }, [
           document.createTextNode(article.title),
         ])
       : document.createTextNode(article.title);

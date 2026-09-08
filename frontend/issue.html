@@ -148,8 +148,8 @@
       // archive.org. We hold OCR'd text server-side to power search,
       // but we don't republish it here -- the source is the place to
       // read the full article.
-      const titleNode = a.source_url
-        ? el('a', { href: a.source_url, target: '_blank', rel: 'noopener' }, [
+      const titleNode = a.reader_url
+        ? el('a', { href: a.reader_url, target: '_blank', rel: 'noopener' }, [
             document.createTextNode(a.title),
           ])
         : document.createTextNode(a.title);
