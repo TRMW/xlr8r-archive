@@ -99,7 +99,7 @@
   }
 
   function issueCard(issue) {
-    return el('a', { class: 'issue-card', href: `issue.html?id=${issue.id}` }, [
+    return el('a', { class: 'issue-card', href: `issue?id=${issue.id}` }, [
       el('div', { class: 'num' }, [document.createTextNode(issue.issue_number ? `#${issue.issue_number}` : '—')]),
       el('div', { class: 'title' }, [document.createTextNode(issue.title || '')]),
     ]);
@@ -167,7 +167,7 @@
     if (article.issue_id) {
       li.appendChild(
         el('p', { style: 'margin-top:6px' }, [
-          el('a', { href: `issue.html?id=${article.issue_id}` }, [document.createTextNode('Open issue →')]),
+          el('a', { href: `issue?id=${article.issue_id}` }, [document.createTextNode('Open issue →')]),
         ])
       );
     }

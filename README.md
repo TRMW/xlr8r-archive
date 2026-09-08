@@ -26,7 +26,6 @@ frontend/shared.css                 Design tokens + components shared by both pa
 frontend/issue.html                 Single-issue page (masthead, embedded reader, content links, articles)
 frontend/index.html                 Site home: live stats, search, paginated issue grid
 frontend/package.json               Pulls in `serve` so Railway can host the static files
-frontend/serve.json                 Disables serve's clean-URLs redirect (it strips query strings)
 frontend/railway.toml               Railway deploy config for the frontend service
 ```
 
@@ -118,15 +117,22 @@ different environment.
   `GET /articles/search`, and a paginated grid of every issue from
   `GET /issues`, using the `X-Total-Count` response header to know when
   to stop paginating.
-- **`issue.html?id=<issue id>`** — calls `GET /issues/{id}/full` and
+- **`issue?id=<issue id>`** — calls `GET /issues/{id}/full` and
   renders the masthead, an embedded reader (iframed straight from
   archive.org — nothing downloaded), any other content found for the
   issue, and its article list.
 
-`serve` (used to host these on Railway) redirects `/issue.html` to
-`/issue` by default ("clean URLs") and drops the query string in that
-redirect — every link would land on `id=1` regardless of which issue
-was clicked. `serve.json` disables that.
+Internal links use extension-less paths (`issue?id=5`, `/`) rather than
+`issue.html?id=5`. `serve` (used to host these on Railway) redirects any
+`*.html` request to its extension-less form by default ("clean URLs"),
+and that redirect drops the query string -- every issue link would land
+on `id=1` regardless of which issue was clicked. Disabling `cleanUrls`
+in a `serve.json` fixes that redirect but also disables `serve`'s
+default index-file resolution, so `/` starts showing a directory
+listing instead of `index.html` -- a worse trade. Linking directly to
+the extension-less path sidesteps the redirect entirely (no round trip,
+nothing to drop), while leaving `cleanUrls` on its default so `/` keeps
+resolving to `index.html` normally.
 
 The backend has CORS wide open (`allow_origins=["*"]`) since these pages
 are static files served separately from the API.
