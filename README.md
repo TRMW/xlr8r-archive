@@ -213,15 +213,37 @@ one in `railway.toml`.
 
 - Frontend: https://frontend-production-1f209.up.railway.app
 - API: https://backend-production-8c32.up.railway.app
-- 69 issues, 257 articles, 205 content links; every issue link resolves.
+- 69 issues, 1029 articles, 205 content links; every issue link resolves.
 
 ## Known gaps
 
-- **Article titles are low quality.** Segmentation takes the first line
-  of each OCR chunk, which is often mid-sentence text or garbled
-  characters (real examples: "are the pounding, drummy, seven-minute
-  long thud-whack techno", "SIC AT® CULTURE"). Improving this means a
-  better segmentation approach, not a tweak to the current heuristic.
+- **Article titles: much improved, not perfect.** Segmentation now
+  splits on XLR8R's real per-article boundary -- the "WORDS: <author>
+  PHOTO(S): <credit>" byline convention -- rather than only on department
+  headers, and pulls the title from the block of all-caps lines directly
+  above each byline (this magazine sets titles/deks in caps, distinct
+  from body prose). Verified against real fetched OCR text before
+  running against production; real recovered examples include
+  "SILHOUETTE BROWN", "FAT FREDDY'S DROP", "CHUKKI STARR" with correct
+  authors, where the old version produced one garbled multi-article blob
+  per department (e.g. "are the pounding, drummy, seven-minute long
+  thud-whack techno" -- a random mid-sentence fragment from deep inside
+  a merged Reviews blob).
+
+  Two residual gaps, both honestly labeled rather than hidden:
+  - **Capsule reviews** have no per-review byline, so they still arrive
+    as a handful of larger chunks per issue (sometimes tens of thousands
+    of characters) rather than one row per review. Labeled generically
+    ("Review") rather than mistitled.
+  - **Some issues/eras don't consistently use the WORDS:/PHOTO: byline**
+    (observed in at least issues #76 and #80) -- when there's no byline
+    to anchor on, a whole run of features can land in one large fallback
+    chunk, again labeled generically ("Feature") rather than mistitled.
+    Improving this further means identifying whatever byline convention
+    those issues actually use, which hasn't been done yet.
+
+  `scripts/extract_articles.py`'s module docstring has the full
+  breakdown of how the segmentation works and what it doesn't handle.
 - **No artist tagging.** The `artists`/`article_artists` tables exist
   and the API and UI both handle them, but nothing populates them, so
   the count stays 0 and the browse page hides that stat.
